@@ -64,6 +64,17 @@ module DatabaseCleaner
       end
 
       def build_table_stats_query(connection)
+        case connection.adapter_name
+        when "Mysql2", "Trilogy"
+          build_mysql_table_stats_query(connection)
+        when "PostgreSQL"
+          build_postgresql_table_stats_query(connection)
+        else
+          ''
+        end
+      end
+
+      def build_mysql_table_stats_query(connection)
         tables = connection.select_values(<<-SQL)
           SELECT table_name
           FROM information_schema.tables
@@ -76,8 +87,22 @@ module DatabaseCleaner
         queries.join(' UNION ALL ')
       end
 
+      def build_postgresql_table_stats_query(connection)
+        tables = connection.select_values(<<-SQL)
+          SELECT table_name
+          FROM information_schema.tables
+          WHERE table_schema = current_schema()
+          AND table_type = 'BASE TABLE'
+          AND #{self.class.exclusion_condition('table_name')};
+        SQL
+        queries = tables.map do |table|
+          "(SELECT #{connection.quote(table)} FROM #{connection.quote_table_name(table)} LIMIT 1)"
+        end
+        queries.join(' UNION ALL ')
+      end
+
       def information_schema_exists? connection
-        ["Mysql2", "Trilogy"].include?(connection.adapter_name)
+        ["Mysql2", "Trilogy", "PostgreSQL"].include?(connection.adapter_name)
       end
     end
   end
